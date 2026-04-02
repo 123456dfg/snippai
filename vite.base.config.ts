@@ -41,7 +41,9 @@ export function getDefineKeys(names: string[]) {
 
 export function getBuildDefine(env: ConfigEnv<'build'>) {
   const { command, forgeConfig } = env;
-  const names = forgeConfig.renderer.filter(({ name }) => name != null).map(({ name }) => name!);
+  const names = forgeConfig.renderer
+    .map(({ name }) => name)
+    .filter((name): name is string => typeof name === 'string' && name.length > 0);
   const defineKeys = getDefineKeys(names);
   const define = Object.entries(defineKeys).reduce((acc, [name, keys]) => {
     const { VITE_DEV_SERVER_URL, VITE_NAME } = keys;
@@ -50,7 +52,7 @@ export function getBuildDefine(env: ConfigEnv<'build'>) {
       [VITE_NAME]: JSON.stringify(name),
     };
     return { ...acc, ...def };
-  }, {} as Record<string, any>);
+  }, {} as Record<string, string | undefined>);
 
   return define;
 }
@@ -65,8 +67,13 @@ export function pluginExposeRenderer(name: string): Plugin {
       // Expose server for preload scripts hot reload.
       process.viteDevServers[name] = server;
 
-      server.httpServer?.once('listening', () => {
-        const addressInfo = server.httpServer!.address() as AddressInfo;
+      const httpServer = server.httpServer;
+      if (!httpServer) {
+        return;
+      }
+
+      httpServer.once('listening', () => {
+        const addressInfo = httpServer.address() as AddressInfo;
         // Expose env constant for main process use.
         process.env[VITE_DEV_SERVER_URL] = `http://localhost:${addressInfo?.port}`;
       });

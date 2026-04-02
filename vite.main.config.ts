@@ -6,11 +6,15 @@ import { getBuildConfig, getBuildDefine, external, pluginHotRestart } from './vi
 export default defineConfig((env) => {
   const forgeEnv = env as ConfigEnv<'build'>;
   const { forgeConfigSelf } = forgeEnv;
+  const entry = forgeConfigSelf.entry;
+  if (!entry) {
+    throw new Error('Missing forge main entry configuration.');
+  }
   const define = getBuildDefine(forgeEnv);
   const config: UserConfig = {
     build: {
       lib: {
-        entry: forgeConfigSelf.entry!,
+        entry,
         fileName: () => '[name].js',
         formats: ['cjs'],
       },

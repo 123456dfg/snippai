@@ -2,8 +2,12 @@ import { MathJax } from "better-react-mathjax"
 import React, { useEffect } from "react"
 
 declare global {
+  interface MathJaxGlobal {
+    typesetPromise: () => Promise<unknown>;
+  }
+
   interface Window {
-    MathJax: any;
+    MathJax?: MathJaxGlobal;
   }
 }
 export default function displayLatexResult(props: { latex: string}) {

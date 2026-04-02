@@ -17,29 +17,17 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover"
-import { models } from "../lib/models"
+import { type ManagedModel } from "../lib/models"
 
-export default function selectModel(props:{handleModelChange:Function}) {
+export default function SelectModel(props: {
+  handleModelChange: (value: string) => void
+  value: string
+  modelList: ManagedModel[]
+}) {
   const [open, setOpen] = React.useState(false)
-  //read the model from local storage
-  let model = localStorage.getItem("model")
-  if (model && models.find((m) => m.value === model)) {
-    model = model
-  }else{
-    model = "gemini"
-  }
-  const [value, setValue] = React.useState(model)
-  
-  //when the model is updated, update the parent state
-  React.useEffect(() => {
-    if (!value) {
-      setValue(model)
-    }
-    props.handleModelChange(value)
-    //save the model to local storage
-    localStorage.setItem("model", value)
-  }, [value])
 
+  const selectedLabel =
+    props.modelList.find((item) => item.value === props.value)?.label ?? ""
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -48,32 +36,30 @@ export default function selectModel(props:{handleModelChange:Function}) {
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-[200px] justify-between"
+          className="w-[240px] justify-between"
         >
-          {value
-            ? models.find((model) => model.value === value)?.label
-            : ""}
+          {selectedLabel}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[200px] p-0 dark">
+      <PopoverContent className="w-[240px] p-0 dark">
         <Command>
           <CommandInput placeholder="Search model..." />
           <CommandEmpty>No model found.</CommandEmpty>
           <CommandGroup>
-            {models.map((model) => (
+            {props.modelList.map((model) => (
               <CommandItem
                 key={model.value}
                 value={model.value}
                 onSelect={(currentValue) => {
-                  setValue(currentValue === value ? "" : currentValue)
+                  props.handleModelChange(currentValue)
                   setOpen(false)
                 }}
               >
                 <Check
                   className={cn(
                     "mr-2 h-4 w-4",
-                    value === model.value ? "opacity-100" : "opacity-0"
+                    props.value === model.value ? "opacity-100" : "opacity-0"
                   )}
                 />
                 {model.label}

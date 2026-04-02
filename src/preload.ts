@@ -5,7 +5,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import "@sentry/electron/preload";
 
 contextBridge.exposeInMainWorld('electronAPI', {
-    onScreenShotRes: (callback: any) => ipcRenderer.on('screenshot-result', (_event, value) => callback(value)),
+    onScreenShotRes: (callback: (value: string) => void) => ipcRenderer.on('screenshot-result', (_event, value: string) => callback(value)),
     removeListener(channel: string, func: (...args: unknown[]) => void) {
         ipcRenderer.removeListener(channel, (_event, ...args) => func(...args));
     },

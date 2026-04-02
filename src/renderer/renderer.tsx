@@ -29,7 +29,7 @@
 import './index.css';
 import App from './App'
 import React from 'react'
-import ReactDOM from 'react-dom/client'
+import { createRoot } from 'react-dom/client'
 import * as Sentry from "@sentry/electron/renderer";
 
 Sentry.init({
@@ -45,7 +45,7 @@ Sentry.init({
   replaysOnErrorSampleRate: 1.0, // If you're not already sampling the entire session, change the sample rate to 100% when sampling sessions where errors occur.
 });
 
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+createRoot(document.getElementById('root') as HTMLElement).render(
     <React.StrictMode>
       <App />
     </React.StrictMode>,

@@ -3,7 +3,7 @@ import type { AIModelResponse, AIModelTool } from "./types";
 
 const client = new OpenAIStyleModel();
 
-async function azureGpt4(
+async function openaiModel(
   image: string,
   prompt: string,
   apiKey?: string,
@@ -11,7 +11,7 @@ async function azureGpt4(
   model?: string,
   tools?: AIModelTool[]
 ): Promise<AIModelResponse> {
-  return client.chat(image, prompt, apiKey, model ?? "gpt-4", apiUrl, tools);
+  return client.chat(image, prompt, apiKey, model, apiUrl, tools);
 }
 
-export default azureGpt4;
+export default openaiModel;

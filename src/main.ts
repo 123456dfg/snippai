@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu } from 'electron';
+import { app, BrowserWindow, globalShortcut } from 'electron';
 import path from 'path';
 import * as Sentry from "@sentry/electron/main";
 
@@ -98,7 +98,7 @@ app.whenReady().then(() => {
     }
   });
   // 点击确定按钮回调事件
-  screenshots.on("ok", (e: any, buffer: Uint8Array, bounds: any) => {
+  screenshots.on("ok", (_event: unknown, buffer: Uint8Array) => {
     //console.log("ok capture", buffer);
     //buffer is Uint8Array, to base64
 
@@ -127,11 +127,11 @@ app.whenReady().then(() => {
   //   console.log("capture", "cancel2");
   // });
   // 点击保存按钮回调事件
-  screenshots.on("save", (e: any, buffer: Uint8Array, bounds: any) => {
+  screenshots.on("save", (_event: unknown, buffer: Uint8Array, bounds: unknown) => {
     console.log("save capture", buffer, bounds);
   });
   // 保存后的回调事件
-  screenshots.on("afterSave", (e: any, buffer: Uint8Array, bounds: any, isSaved: any) => {
+  screenshots.on("afterSave", (_event: unknown, buffer: Uint8Array, bounds: unknown, isSaved: boolean) => {
     console.log("afterSave capture", buffer, bounds);
     console.log("isSaved", isSaved) // 是否保存成功
   });
