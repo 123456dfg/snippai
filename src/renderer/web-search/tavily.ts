@@ -35,21 +35,21 @@ export class TavilySearchProvider extends WebSearchProvider {
 
     const data = (await response.json()) as TavilyResponse;
     if (!response.ok) {
-      throw new Error(data.error ?? "Tavily 搜索失败。");
+      throw new Error(data.error ?? "Tavily search failed.");
     }
 
     const results = data.results ?? [];
     if (!results.length) {
-      return `查询：${query}\n未检索到结果。`;
+      return `Query: ${query}\nNo results found.`;
     }
 
     const lines = results.map((item, index) => {
-      const title = item.title ?? "无标题";
+      const title = item.title ?? "Untitled";
       const url = item.url ?? "";
       const content = item.content ?? "";
       return `${index + 1}. ${title}\n${url}\n${content}`;
     });
 
-    return `查询：${query}\n${lines.join("\n\n")}`;
+    return `Query: ${query}\n${lines.join("\n\n")}`;
   }
 }

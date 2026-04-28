@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from "react"
-import { Pencil, Trash2 } from "lucide-react"
+import React, { useEffect, useState } from "react"
+import { Pencil, Trash2, Zap } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -8,29 +8,43 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog"
+import { Switch } from "../components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Label } from "../components/ui/label"
 import { Input } from "../components/ui/input"
 import { Button } from "../components/ui/button"
 import { Badge } from "../components/ui/badge"
 import {
-  addCustomModel,
   CUSTOM_PROVIDER_VALUE,
-  deleteCustomModel,
+  getAllModels,
   getModelApiKey,
+  inferApiStyleFromUrl,
   MODEL_PROVIDERS,
+  saveCustomModels,
   saveModelApiKey,
-  updateCustomModel,
   type ManagedModel,
 } from "../lib/models"
+import { encryptText } from "../lib/secureStorage"
 import {
-  addSearchClient,
-  deleteSearchClient,
   getSearchClientApiKey,
-  updateSearchClient,
+  replaceSearchClients,
   type SearchClient,
   type SearchProvider,
 } from "../lib/searchClients"
+import OpenAIStyleModel from "../models/openai-style"
+import GeminiStyleModel from "../models/gemini-style"
+import AnthropicStyleModel from "../models/anthropic-style"
+import { useToast } from "../components/ui/use-toast"
 
 interface SettingsDialogProps {
   open: boolean
@@ -42,18 +56,56 @@ interface SettingsDialogProps {
   onSearchClientsChanged: (clients: SearchClient[]) => void
 }
 
+interface SearchClientDraft {
+  id: string
+  provider: SearchProvider
+  isDefault: boolean
+}
+
+function normalizeApiUrl(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    return ""
+  }
+  return trimmed.replace(/\/+$/, "")
+}
+
+function ensureSingleDefaultSearchClient(clients: SearchClientDraft[]): SearchClientDraft[] {
+  if (clients.length === 0) {
+    return clients
+  }
+
+  const defaultIndex = clients.findIndex((item) => item.isDefault)
+  if (defaultIndex < 0) {
+    return clients.map((item, index) => ({
+      ...item,
+      isDefault: index === 0,
+    }))
+  }
+
+  return clients.map((item, index) => ({
+    ...item,
+    isDefault: index === defaultIndex,
+  }))
+}
+
 export default function SettingsDialog(props: SettingsDialogProps) {
-  const [currentApiKey, setCurrentApiKey] = useState("")
-  const [apiKeySaving, setApiKeySaving] = useState(false)
+  const [savingSettings, setSavingSettings] = useState(false)
+
   const [addModelOpen, setAddModelOpen] = useState(false)
   const [addingModel, setAddingModel] = useState(false)
   const [editingModelValue, setEditingModelValue] = useState<string | null>(null)
+
   const [addSearchClientOpen, setAddSearchClientOpen] = useState(false)
   const [savingSearchClient, setSavingSearchClient] = useState(false)
   const [editingSearchClientId, setEditingSearchClientId] = useState<string | null>(null)
-  const [searchProvider, setSearchProvider] = useState<SearchProvider>("tavily")
-  const [searchApiKey, setSearchApiKey] = useState("")
-  const [searchIsDefault, setSearchIsDefault] = useState(false)
+
+  type DeleteTarget =
+    | { type: "model"; value: string; label: string }
+    | { type: "searchClient"; id: string; label: string }
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
+  const [testingModelValue, setTestingModelValue] = useState<string | null>(null)
+  const { toast } = useToast()
 
   const [alias, setAlias] = useState("")
   const [provider, setProvider] = useState(MODEL_PROVIDERS[0].value)
@@ -61,31 +113,72 @@ export default function SettingsDialog(props: SettingsDialogProps) {
   const [apiUrl, setApiUrl] = useState("")
   const [modelName, setModelName] = useState("")
 
-  const selectedModel = props.modelList.find((item) => item.value === props.model)
+  const [searchProvider, setSearchProvider] = useState<SearchProvider>("tavily")
+  const [searchApiKey, setSearchApiKey] = useState("")
 
-  const loadCurrentApiKey = useCallback(async () => {
-    if (!selectedModel) {
-      setCurrentApiKey("")
-      return
-    }
-    const key = await getModelApiKey(selectedModel.value, props.modelList)
-    setCurrentApiKey(key)
-  }, [selectedModel, props.modelList])
+  const [draftModelList, setDraftModelList] = useState<ManagedModel[]>(props.modelList)
+  const [draftModelApiKeyMap, setDraftModelApiKeyMap] = useState<Record<string, string>>({})
+  const [draftSearchClients, setDraftSearchClients] = useState<SearchClientDraft[]>([])
+  const [draftSearchApiKeyMap, setDraftSearchApiKeyMap] = useState<Record<string, string>>({})
 
   useEffect(() => {
-    if (props.open) {
-      loadCurrentApiKey()
-    }
-  }, [props.open, loadCurrentApiKey])
+    let active = true
 
-  const saveCurrentModelApiKey = async () => {
-    if (!selectedModel) {
-      return
+    const loadDrafts = async () => {
+      if (!props.open) {
+        return
+      }
+
+      const nextModelList = props.modelList.map((item) => ({ ...item }))
+      const modelApiPairs = await Promise.all(
+        nextModelList.map(async (item) => {
+          const key = await getModelApiKey(item.value, props.modelList)
+          return [item.value, key] as const
+        })
+      )
+
+      const nextSearchClients: SearchClientDraft[] = props.searchClients.map((item) => ({
+        id: item.id,
+        provider: item.provider,
+        isDefault: item.isDefault,
+      }))
+      const searchApiPairs = await Promise.all(
+        props.searchClients.map(async (item) => {
+          const key = await getSearchClientApiKey(item.id)
+          return [item.id, key] as const
+        })
+      )
+
+      if (!active) {
+        return
+      }
+
+      setDraftModelList(nextModelList)
+      setDraftModelApiKeyMap(Object.fromEntries(modelApiPairs))
+      setDraftSearchClients(nextSearchClients)
+      setDraftSearchApiKeyMap(Object.fromEntries(searchApiPairs))
+
+      resetForm()
+      resetSearchForm()
+      setAddModelOpen(false)
+      setAddSearchClientOpen(false)
     }
-    setApiKeySaving(true)
-    const updatedModels = await saveModelApiKey(selectedModel.value, currentApiKey, props.modelList)
-    props.onModelsChanged(updatedModels)
-    setApiKeySaving(false)
+
+    void loadDrafts()
+
+    return () => {
+      active = false
+    }
+  }, [props.open, props.modelList, props.searchClients])
+
+  const handleDialogOpenChange = (value: boolean) => {
+    if (!value) {
+      resetForm()
+      resetSearchForm()
+      setAddModelOpen(false)
+      setAddSearchClientOpen(false)
+    }
+    props.onOpenChange(value)
   }
 
   const resetForm = () => {
@@ -102,10 +195,11 @@ export default function SettingsDialog(props: SettingsDialogProps) {
     setAddModelOpen(true)
   }
 
-  const openEditDialog = async (item: ManagedModel) => {
+  const openEditDialog = (item: ManagedModel) => {
     if (!item.isCustom) {
       return
     }
+
     setEditingModelValue(item.value)
     setAlias(item.label)
     setProvider(item.provider)
@@ -113,13 +207,8 @@ export default function SettingsDialog(props: SettingsDialogProps) {
     const isCustomProvider =
       item.provider === CUSTOM_PROVIDER_VALUE ||
       !MODEL_PROVIDERS.some((providerItem) => providerItem.value === item.provider)
-    if (isCustomProvider) {
-      setApiUrl(item.apiUrl)
-    } else {
-      setApiUrl("")
-    }
-    const targetApiKey = await getModelApiKey(item.value, props.modelList)
-    setApiKey(targetApiKey)
+    setApiUrl(isCustomProvider ? item.apiUrl : "")
+    setApiKey(draftModelApiKeyMap[item.value] ?? "")
     setAddModelOpen(true)
   }
 
@@ -127,34 +216,116 @@ export default function SettingsDialog(props: SettingsDialogProps) {
     if (!item.isCustom) {
       return
     }
-    const shouldDelete = window.confirm(`确认删除模型「${item.label}」吗？`)
-    if (!shouldDelete) {
+    setDeleteTarget({ type: "model", value: item.value, label: item.label })
+  }
+
+  const testModelConnection = async (item: ManagedModel) => {
+    const apiKey = draftModelApiKeyMap[item.value]?.trim() ?? ""
+    if (item.requireApiKey && !apiKey) {
+      toast({ title: "Test Failed", description: "Please enter an API key first." })
       return
     }
-    const updatedModels = deleteCustomModel(item.value)
-    props.onModelsChanged(updatedModels)
+
+    setTestingModelValue(item.value)
+    try {
+      if (item.modelScript === "gemini") {
+        const client = new GeminiStyleModel()
+        await client.testConnection(apiKey, item.modelName, item.apiUrl)
+      } else if (item.modelScript === "anthropic") {
+        const client = new AnthropicStyleModel()
+        await client.testConnection(apiKey, item.modelName, item.apiUrl)
+      } else {
+        const client = new OpenAIStyleModel()
+        await client.testConnection(apiKey, item.modelName, item.apiUrl)
+      }
+      toast({ title: "Connection Successful", description: `${item.label} is reachable.` })
+    } catch (error) {
+      toast({
+        title: "Connection Failed",
+        description: (error as Error).message,
+        variant: "destructive",
+      })
+    } finally {
+      setTestingModelValue(null)
+    }
+  }
+
+  const confirmDelete = () => {
+    if (!deleteTarget) {
+      return
+    }
+
+    if (deleteTarget.type === "model") {
+      setDraftModelList((prev) => prev.filter((item) => item.value !== deleteTarget.value))
+      setDraftModelApiKeyMap((prev) => {
+        const next = { ...prev }
+        delete next[deleteTarget.value]
+        return next
+      })
+    } else {
+      setDraftSearchClients((prev) =>
+        ensureSingleDefaultSearchClient(prev.filter((item) => item.id !== deleteTarget.id))
+      )
+      setDraftSearchApiKeyMap((prev) => {
+        const next = { ...prev }
+        delete next[deleteTarget.id]
+        return next
+      })
+    }
+
+    setDeleteTarget(null)
   }
 
   const submitModel = async () => {
     setAddingModel(true)
     try {
-      const updatedModels = editingModelValue
-        ? await updateCustomModel({
-            modelValue: editingModelValue,
-            alias,
-            provider,
-            apiKey,
-            apiUrl,
-            modelName,
-          })
-        : await addCustomModel({
-            alias,
-            provider,
-            apiKey,
-            apiUrl,
-            modelName,
-          })
-      props.onModelsChanged(updatedModels)
+      const trimmedAlias = alias.trim()
+      const trimmedModelName = modelName.trim()
+      const trimmedApiKey = apiKey.trim()
+      if (!trimmedAlias || !trimmedModelName || !trimmedApiKey) {
+        throw new Error("Please provide a model alias, API key, and model name.")
+      }
+
+      const selectedProvider = MODEL_PROVIDERS.find((item) => item.value === provider)
+      const isCustomProvider = provider === CUSTOM_PROVIDER_VALUE || !selectedProvider
+      const resolvedApiUrl = isCustomProvider
+        ? normalizeApiUrl(apiUrl)
+        : normalizeApiUrl(selectedProvider.apiUrl)
+
+      if (!resolvedApiUrl) {
+        throw new Error("Please enter a valid model API URL.")
+      }
+
+      const modelValue =
+        editingModelValue ?? `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+      const nextCustomModel: ManagedModel = {
+        value: modelValue,
+        label: trimmedAlias,
+        provider,
+        providerLabel: selectedProvider?.label ?? "Custom",
+        requireApiKey: true,
+        requireBaseURL: false,
+        modelScript: isCustomProvider
+          ? inferApiStyleFromUrl(resolvedApiUrl)
+          : selectedProvider.apiStyle,
+        modelName: trimmedModelName,
+        apiUrl: resolvedApiUrl,
+        isCustom: true,
+        encryptedApiKey: "",
+      }
+
+      setDraftModelList((prev) => {
+        if (editingModelValue) {
+          return prev.map((item) => (item.value === editingModelValue ? nextCustomModel : item))
+        }
+        return [...prev, nextCustomModel]
+      })
+      setDraftModelApiKeyMap((prev) => ({
+        ...prev,
+        [modelValue]: trimmedApiKey,
+      }))
+
       setAddModelOpen(false)
       resetForm()
     } catch (error) {
@@ -168,7 +339,6 @@ export default function SettingsDialog(props: SettingsDialogProps) {
     setEditingSearchClientId(null)
     setSearchProvider("tavily")
     setSearchApiKey("")
-    setSearchIsDefault(false)
   }
 
   const openCreateSearchClientDialog = () => {
@@ -176,40 +346,55 @@ export default function SettingsDialog(props: SettingsDialogProps) {
     setAddSearchClientOpen(true)
   }
 
-  const openEditSearchClientDialog = async (item: SearchClient) => {
+  const openEditSearchClientDialog = (item: SearchClientDraft) => {
     setEditingSearchClientId(item.id)
     setSearchProvider(item.provider)
-    setSearchIsDefault(item.isDefault)
-    const apiKey = await getSearchClientApiKey(item.id)
-    setSearchApiKey(apiKey)
+    setSearchApiKey(draftSearchApiKeyMap[item.id] ?? "")
     setAddSearchClientOpen(true)
   }
 
-  const removeSearchClient = (item: SearchClient) => {
-    const shouldDelete = window.confirm(`确认删除搜索客户端「${item.provider.toUpperCase()}」吗？`)
-    if (!shouldDelete) {
-      return
-    }
-    const updated = deleteSearchClient(item.id)
-    props.onSearchClientsChanged(updated)
+  const removeSearchClient = (item: SearchClientDraft) => {
+    setDeleteTarget({ type: "searchClient", id: item.id, label: item.provider.toUpperCase() })
   }
 
   const submitSearchClient = async () => {
     setSavingSearchClient(true)
     try {
-      const updated = editingSearchClientId
-        ? await updateSearchClient({
-            id: editingSearchClientId,
-            provider: searchProvider,
-            apiKey: searchApiKey,
-            isDefault: searchIsDefault,
-          })
-        : await addSearchClient({
-            provider: searchProvider,
-            apiKey: searchApiKey,
-            isDefault: searchIsDefault,
-          })
-      props.onSearchClientsChanged(updated)
+      const trimmedApiKey = searchApiKey.trim()
+      if (!trimmedApiKey) {
+        throw new Error("Please enter a search client API key.")
+      }
+
+      const clientId =
+        editingSearchClientId ?? `search-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+      setDraftSearchClients((prev) => {
+        const nextDraft = editingSearchClientId
+          ? prev.map((item) =>
+              item.id === editingSearchClientId
+                ? {
+                    ...item,
+                    provider: searchProvider,
+                  }
+                : item
+            )
+          : [
+              ...prev,
+              {
+                id: clientId,
+                provider: searchProvider,
+                isDefault: false,
+              },
+            ]
+
+        return ensureSingleDefaultSearchClient(nextDraft)
+      })
+
+      setDraftSearchApiKeyMap((prev) => ({
+        ...prev,
+        [clientId]: trimmedApiKey,
+      }))
+
       setAddSearchClientOpen(false)
       resetSearchForm()
     } catch (error) {
@@ -219,61 +404,80 @@ export default function SettingsDialog(props: SettingsDialogProps) {
     }
   }
 
+  const saveAllChanges = async () => {
+    setSavingSettings(true)
+    try {
+      const customModels = draftModelList.filter((item) => item.isCustom)
+      const encryptedCustomModels = await Promise.all(
+        customModels.map(async (item) => ({
+          ...item,
+          encryptedApiKey: await encryptText((draftModelApiKeyMap[item.value] ?? "").trim()),
+        }))
+      )
+
+      saveCustomModels(encryptedCustomModels)
+
+      const allModelsAfterCustomSaved = getAllModels()
+      const builtinModels = allModelsAfterCustomSaved.filter((item) => !item.isCustom)
+      for (const item of builtinModels) {
+        await saveModelApiKey(item.value, draftModelApiKeyMap[item.value] ?? "", allModelsAfterCustomSaved)
+      }
+
+      const nextModelList = getAllModels()
+      props.onModelsChanged(nextModelList)
+
+      const encryptedSearchClients = await Promise.all(
+        draftSearchClients.map(async (item) => {
+          const key = (draftSearchApiKeyMap[item.id] ?? "").trim()
+          if (!key) {
+            throw new Error(`Search client ${item.provider.toUpperCase()} is missing an API key.`)
+          }
+          return {
+            ...item,
+            encryptedApiKey: await encryptText(key),
+          }
+        })
+      )
+
+      const nextSearchClients = replaceSearchClients(encryptedSearchClients)
+      props.onSearchClientsChanged(nextSearchClients)
+
+      props.onOpenChange(false)
+    } catch (error) {
+      alert((error as Error).message)
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  const discardAllChanges = () => {
+    props.onOpenChange(false)
+  }
+
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog open={props.open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="max-w-4xl">
         <DialogHeader>
-          <DialogTitle>设置</DialogTitle>
-          <DialogDescription>管理 API Key 与可用模型。</DialogDescription>
+          <DialogTitle>Settings</DialogTitle>
+          <DialogDescription>Manage API keys and available models.</DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="api">
+        <Tabs defaultValue="models">
           <TabsList>
-            <TabsTrigger value="api">API Key</TabsTrigger>
-            <TabsTrigger value="models">模型管理</TabsTrigger>
-            <TabsTrigger value="web-search">网络搜索</TabsTrigger>
+            <TabsTrigger value="models">Models</TabsTrigger>
+            <TabsTrigger value="web-search">Web Search</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="api" className="mt-4">
-            <div className="grid gap-4">
-              <div className="text-sm text-muted-foreground">
-                当前选中模型：
-                <span className="ml-2 font-medium text-foreground">
-                  {selectedModel?.label ?? "-"}
-                </span>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="current-model-api-key">API Key</Label>
-                <Input
-                  id="current-model-api-key"
-                  type="password"
-                  value={currentApiKey}
-                  onChange={(event) => setCurrentApiKey(event.target.value)}
-                  placeholder="输入当前模型的 API Key"
-                />
-              </div>
-            </div>
-
-            <DialogFooter className="mt-4">
-              <Button variant="outline" onClick={() => props.onOpenChange(false)}>
-                取消
-              </Button>
-              <Button disabled={apiKeySaving} onClick={saveCurrentModelApiKey}>
-                {apiKeySaving ? "保存中..." : "保存"}
-              </Button>
-            </DialogFooter>
-          </TabsContent>
 
           <TabsContent value="models" className="mt-4">
             <div className="flex items-start justify-between gap-4 rounded-md border border-input p-3">
               <p className="text-sm text-muted-foreground">
-                注意事项：模型需要支持图像多模态，否则无法正常运行。
+                Note: The model must support image multimodality to work correctly.
               </p>
-              <Button onClick={openCreateDialog}>添加模型</Button>
+              <Button onClick={openCreateDialog}>Add Model</Button>
             </div>
 
-            <div className="mt-4 space-y-3">
-              {props.modelList.map((item) => (
+            <div className="mt-4 max-h-[45vh] space-y-3 overflow-y-auto pr-2">
+              {draftModelList.map((item) => (
                 <div
                   key={item.value}
                   className="flex flex-wrap items-center gap-2 rounded-md border border-input p-3"
@@ -283,7 +487,17 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                   <Badge variant="outline">{item.modelScript}</Badge>
                   <span className="text-xs text-muted-foreground">model: {item.modelName}</span>
                   <div className="ml-auto flex items-center gap-2">
-                    {item.isCustom ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => testModelConnection(item)}
+                      disabled={testingModelValue === item.value}
+                      className="h-8"
+                    >
+                      <Zap className="mr-1 h-3.5 w-3.5" />
+                      {testingModelValue === item.value ? "Testing..." : "Test"}
+                    </Button>
+                    {item.isCustom && (
                       <>
                         <Button
                           variant="outline"
@@ -292,7 +506,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                           className="h-8"
                         >
                           <Pencil className="mr-1 h-3.5 w-3.5" />
-                          编辑
+                          Edit
                         </Button>
                         <Button
                           variant="destructive"
@@ -301,11 +515,9 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                           className="h-8"
                         >
                           <Trash2 className="mr-1 h-3.5 w-3.5" />
-                          删除
+                          Delete
                         </Button>
                       </>
-                    ) : (
-                      <Badge variant="outline">内置</Badge>
                     )}
                   </div>
                 </div>
@@ -315,26 +527,40 @@ export default function SettingsDialog(props: SettingsDialogProps) {
 
           <TabsContent value="web-search" className="mt-4">
             <div className="flex items-start justify-between gap-4 rounded-md border border-input p-3">
-              <p className="text-sm text-muted-foreground">管理联网搜索客户端（当前支持 Tavily）。</p>
-              <Button onClick={openCreateSearchClientDialog}>添加搜索客户端</Button>
+              <p className="text-sm text-muted-foreground">Manage web search clients. Tavily is currently supported.</p>
+              <Button onClick={openCreateSearchClientDialog}>Add Search Client</Button>
             </div>
 
             <div className="mt-4 space-y-3">
-              {props.searchClients.length === 0 && (
+              {draftSearchClients.length === 0 && (
                 <div className="rounded-md border border-input p-3 text-sm text-muted-foreground">
-                  暂无搜索客户端，请先添加。
+                  No search clients yet. Add one first.
                 </div>
               )}
-              {props.searchClients.map((item) => (
+              {draftSearchClients.map((item) => (
                 <div key={item.id} className="flex items-center gap-2 rounded-md border border-input p-3">
                   <span className="font-medium">{item.provider.toUpperCase()}</span>
                   <Badge variant="secondary">Search Client</Badge>
-                  {item.isDefault ? (
-                    <Badge>默认</Badge>
-                  ) : (
-                    <Badge variant="outline">非默认</Badge>
-                  )}
-                  <div className="ml-auto flex items-center gap-2">
+                  <div className="ml-auto flex items-center gap-3">
+                    <Label htmlFor={`default-${item.id}`} className="text-xs text-muted-foreground cursor-pointer">
+                      Default
+                    </Label>
+                    <Switch
+                      id={`default-${item.id}`}
+                      checked={item.isDefault}
+                      onCheckedChange={(checked) => {
+                        setDraftSearchClients((prev) =>
+                          ensureSingleDefaultSearchClient(
+                            prev.map((client) => ({
+                              ...client,
+                              isDefault: checked ? client.id === item.id : client.isDefault,
+                            }))
+                          )
+                        )
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
                     <Button
                       variant="outline"
                       size="sm"
@@ -342,7 +568,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                       className="h-8"
                     >
                       <Pencil className="mr-1 h-3.5 w-3.5" />
-                      编辑
+                      Edit
                     </Button>
                     <Button
                       variant="destructive"
@@ -351,7 +577,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                       className="h-8"
                     >
                       <Trash2 className="mr-1 h-3.5 w-3.5" />
-                      删除
+                      Delete
                     </Button>
                   </div>
                 </div>
@@ -359,6 +585,15 @@ export default function SettingsDialog(props: SettingsDialogProps) {
             </div>
           </TabsContent>
         </Tabs>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={discardAllChanges} disabled={savingSettings}>
+            Discard Changes
+          </Button>
+          <Button onClick={saveAllChanges} disabled={savingSettings}>
+            {savingSettings ? "Saving..." : "Save Changes"}
+          </Button>
+        </DialogFooter>
 
         <Dialog
           open={addModelOpen}
@@ -371,25 +606,25 @@ export default function SettingsDialog(props: SettingsDialogProps) {
         >
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{editingModelValue ? "编辑模型" : "添加模型"}</DialogTitle>
+              <DialogTitle>{editingModelValue ? "Edit Model" : "Add Model"}</DialogTitle>
               <DialogDescription>
-                填写模型信息后将保存到本地，API Key 使用 AES 加密存储。
+                Model details are saved to the current draft. Click "Save Changes" at the bottom of Settings to apply them.
               </DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-4 py-2">
               <div className="grid gap-2">
-                <Label htmlFor="model-alias">模型别名</Label>
+                <Label htmlFor="model-alias">Model Alias</Label>
                 <Input
                   id="model-alias"
                   value={alias}
                   onChange={(event) => setAlias(event.target.value)}
-                  placeholder="例如：我的 DeepSeek-V3"
+                  placeholder="For example: My DeepSeek-V3"
                 />
               </div>
 
               <div className="grid gap-2">
-                <Label htmlFor="model-provider">模型服务商</Label>
+                <Label htmlFor="model-provider">Model Provider</Label>
                 <select
                   id="model-provider"
                   value={provider}
@@ -411,29 +646,29 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                   type="password"
                   value={apiKey}
                   onChange={(event) => setApiKey(event.target.value)}
-                  placeholder="输入服务商 API Key"
+                  placeholder="Enter the provider API key"
                 />
               </div>
 
               {provider === CUSTOM_PROVIDER_VALUE && (
                 <div className="grid gap-2">
-                  <Label htmlFor="model-api-url">模型 API URL</Label>
+                  <Label htmlFor="model-api-url">Model API URL</Label>
                   <Input
                     id="model-api-url"
                     value={apiUrl}
                     onChange={(event) => setApiUrl(event.target.value)}
-                    placeholder="例如：https://example.com/v1"
+                    placeholder="For example: https://example.com/v1"
                   />
                 </div>
               )}
 
               <div className="grid gap-2">
-                <Label htmlFor="model-name">模型名称</Label>
+                <Label htmlFor="model-name">Model Name</Label>
                 <Input
                   id="model-name"
                   value={modelName}
                   onChange={(event) => setModelName(event.target.value)}
-                  placeholder="例如：deepseek-chat / gpt-4o / gemini-1.5-pro"
+                  placeholder="For example: deepseek-chat / gpt-4o / gemini-1.5-pro"
                 />
               </div>
             </div>
@@ -446,10 +681,10 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                   resetForm()
                 }}
               >
-                取消
+                Cancel
               </Button>
               <Button disabled={addingModel} onClick={submitModel}>
-                {addingModel ? "保存中..." : editingModelValue ? "保存修改" : "确定"}
+                {addingModel ? "Processing..." : editingModelValue ? "Save Changes" : "Add Model"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -466,15 +701,15 @@ export default function SettingsDialog(props: SettingsDialogProps) {
         >
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{editingSearchClientId ? "编辑搜索客户端" : "添加搜索客户端"}</DialogTitle>
+              <DialogTitle>{editingSearchClientId ? "Edit Search Client" : "Add Search Client"}</DialogTitle>
               <DialogDescription>
-                API Key 将使用 AES 加密存储。若设为默认，将自动取消其余客户端默认状态。
+                The API key is saved to the current draft. Click "Save Changes" at the bottom of Settings to apply it.
               </DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-4 py-2">
               <div className="grid gap-2">
-                <Label htmlFor="search-provider">提供商</Label>
+                <Label htmlFor="search-provider">Provider</Label>
                 <select
                   id="search-provider"
                   value={searchProvider}
@@ -492,19 +727,8 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                   type="password"
                   value={searchApiKey}
                   onChange={(event) => setSearchApiKey(event.target.value)}
-                  placeholder="输入 Tavily API Key"
+                  placeholder="Enter the Tavily API key"
                 />
-              </div>
-
-              <div className="grid gap-2">
-                <Label>是否为默认</Label>
-                <Button
-                  type="button"
-                  variant={searchIsDefault ? "default" : "outline"}
-                  onClick={() => setSearchIsDefault((value) => !value)}
-                >
-                  {searchIsDefault ? "已设为默认" : "设为默认"}
-                </Button>
               </div>
             </div>
 
@@ -516,14 +740,29 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                   resetSearchForm()
                 }}
               >
-                取消
+                Cancel
               </Button>
               <Button disabled={savingSearchClient} onClick={submitSearchClient}>
-                {savingSearchClient ? "保存中..." : editingSearchClientId ? "保存修改" : "确定"}
+                {savingSearchClient ? "Processing..." : editingSearchClientId ? "Save Changes" : "Add Search Client"}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete {deleteTarget?.type === "model" ? "Model" : "Search Client"}</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete &ldquo;{deleteTarget?.label}&rdquo;? This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   )

@@ -1,6 +1,6 @@
 import { decryptText, encryptText } from "./secureStorage";
 
-export type ApiStyle = "openai" | "gemini";
+export type ApiStyle = "openai" | "gemini" | "anthropic";
 
 export interface PromptOption {
   value: string;
@@ -55,7 +55,7 @@ export const MODEL_PROVIDERS: ModelProvider[] = [
   },
   {
     value: "siliconflow",
-    label: "硅基流动",
+    label: "SiliconFlow",
     apiStyle: "openai",
     apiUrl: "https://api.siliconflow.cn/v1",
   },
@@ -67,25 +67,25 @@ export const MODEL_PROVIDERS: ModelProvider[] = [
   },
   {
     value: "volcengine",
-    label: "火山引擎",
+    label: "doubao-Seed",
     apiStyle: "openai",
     apiUrl: "https://ark.cn-beijing.volces.com/api/v3",
   },
   {
     value: "qwen",
-    label: "千问",
+    label: "Qwen",
     apiStyle: "openai",
     apiUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
   },
   {
-    value: "claude",
-    label: "Claude(兼容模式)",
-    apiStyle: "openai",
-    apiUrl: "https://openrouter.ai/api/v1",
+    value: "anthropic",
+    label: "Anthropic",
+    apiStyle: "anthropic",
+    apiUrl: "https://api.anthropic.com/v1",
   },
   {
     value: "zhipu",
-    label: "智谱",
+    label: "Zhipu",
     apiStyle: "openai",
     apiUrl: "https://open.bigmodel.cn/api/paas/v4",
   },
@@ -97,7 +97,7 @@ export const MODEL_PROVIDERS: ModelProvider[] = [
   },
   {
     value: CUSTOM_PROVIDER_VALUE,
-    label: "自定义",
+    label: "Custom",
     apiStyle: "openai",
     apiUrl: "",
   },
@@ -152,34 +152,9 @@ const DEFAULT_PROMPTS: PromptOption[] = [
 
 export const promptOptions: Record<string, PromptOption[]> = {
   default: DEFAULT_PROMPTS,
-  gemini: DEFAULT_PROMPTS,
-  gpt4: DEFAULT_PROMPTS,
 };
 
-export const models: ManagedModel[] = [
-  {
-    value: "gemini",
-    label: "Google Gemini",
-    provider: "gemini-proxy",
-    providerLabel: "Gemini Proxy",
-    requireApiKey: false,
-    requireBaseURL: false,
-    modelScript: "gemini",
-    modelName: "gemini-1.5-pro",
-    apiUrl: "https://s.global.ssl.fastly.net/v1beta/models/{model}:generateContent",
-  },
-  {
-    value: "gpt4",
-    label: "OpenAI GPT-4o",
-    provider: "openai",
-    providerLabel: "OpenAI",
-    requireApiKey: true,
-    requireBaseURL: false,
-    modelScript: "openai",
-    modelName: "gpt-4o",
-    apiUrl: "https://api.openai.com/v1",
-  },
-];
+export const models: ManagedModel[] = [];
 
 function canUseLocalStorage(): boolean {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
@@ -201,12 +176,14 @@ function toManagedModel(item: Partial<ManagedModel>): ManagedModel | null {
     return null;
   }
 
-  const modelScript = item.modelScript === "gemini" ? "gemini" : "openai";
+  const modelScript: ApiStyle =
+    item.modelScript === "gemini" ? "gemini" :
+    item.modelScript === "anthropic" ? "anthropic" : "openai";
   return {
     value: item.value,
     label: item.label,
     provider: item.provider ?? CUSTOM_PROVIDER_VALUE,
-    providerLabel: item.providerLabel ?? "自定义",
+    providerLabel: getProviderByValue(item.provider ?? CUSTOM_PROVIDER_VALUE)?.label ?? item.providerLabel ?? "Custom",
     requireApiKey: true,
     requireBaseURL: false,
     modelScript,
@@ -224,6 +201,9 @@ export function inferApiStyleFromUrl(apiUrl: string): ApiStyle {
     normalized.includes(":generatecontent")
   ) {
     return "gemini";
+  }
+  if (normalized.includes("anthropic.com")) {
+    return "anthropic";
   }
   return "openai";
 }
@@ -354,19 +334,19 @@ export async function addCustomModel(input: CreateCustomModelInput): Promise<Man
   const apiKey = input.apiKey.trim();
 
   if (!alias || !modelName || !apiKey) {
-    throw new Error("请填写完整的模型别名、API Key 和模型名称。");
+    throw new Error("Please provide a model alias, API key, and model name.");
   }
 
   const provider = getProviderByValue(input.provider);
   const isCustomProvider = input.provider === CUSTOM_PROVIDER_VALUE || !provider;
-  const providerLabel = provider?.label ?? "自定义";
+  const providerLabel = provider?.label ?? "Custom";
   const providerApiStyle = provider?.apiStyle ?? "openai";
   const resolvedApiUrl = isCustomProvider
     ? normalizeApiUrl(input.apiUrl ?? "")
     : normalizeApiUrl(provider.apiUrl);
 
   if (!resolvedApiUrl) {
-    throw new Error("请填写有效的模型 API URL。");
+    throw new Error("Please enter a valid model API URL.");
   }
 
   const modelScript = isCustomProvider ? inferApiStyleFromUrl(resolvedApiUrl) : providerApiStyle;
@@ -396,7 +376,7 @@ export async function updateCustomModel(input: UpdateCustomModelInput): Promise<
   const customModels = loadCustomModels();
   const targetIndex = customModels.findIndex((item) => item.value === input.modelValue);
   if (targetIndex < 0) {
-    throw new Error("未找到需要编辑的自定义模型。");
+    throw new Error("Could not find the custom model to edit.");
   }
 
   const alias = input.alias.trim();
@@ -404,19 +384,19 @@ export async function updateCustomModel(input: UpdateCustomModelInput): Promise<
   const apiKey = input.apiKey.trim();
 
   if (!alias || !modelName || !apiKey) {
-    throw new Error("请填写完整的模型别名、API Key 和模型名称。");
+    throw new Error("Please provide a model alias, API key, and model name.");
   }
 
   const provider = getProviderByValue(input.provider);
   const isCustomProvider = input.provider === CUSTOM_PROVIDER_VALUE || !provider;
-  const providerLabel = provider?.label ?? "自定义";
+  const providerLabel = provider?.label ?? "Custom";
   const providerApiStyle = provider?.apiStyle ?? "openai";
   const resolvedApiUrl = isCustomProvider
     ? normalizeApiUrl(input.apiUrl ?? "")
     : normalizeApiUrl(provider.apiUrl);
 
   if (!resolvedApiUrl) {
-    throw new Error("请填写有效的模型 API URL。");
+    throw new Error("Please enter a valid model API URL.");
   }
 
   const modelScript = isCustomProvider ? inferApiStyleFromUrl(resolvedApiUrl) : providerApiStyle;

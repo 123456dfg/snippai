@@ -97,7 +97,7 @@ app.whenReady().then(() => {
       screenshots.endCapture();
     }
   });
-  // 点击确定按钮回调事件
+  // Confirm button callback
   screenshots.on("ok", (_event: unknown, buffer: Uint8Array) => {
     //console.log("ok capture", buffer);
     //buffer is Uint8Array, to base64
@@ -114,26 +114,26 @@ app.whenReady().then(() => {
     //show the main window
     mainWindow.show();
   });
-  // 点击取消按钮回调事件
+  // Cancel button callback
   screenshots.on("cancel", () => {
     console.log("capture", "cancel1");
     //show the main window
     mainWindow.show();
   });
   // screenshots.on("cancel", (e) => {
-  //   // 执行了preventDefault
-  //   // 点击取消不会关闭截图窗口
+  //   // preventDefault has been called
+  //   // clicking cancel will not close the capture window
   //   e.preventDefault();
   //   console.log("capture", "cancel2");
   // });
-  // 点击保存按钮回调事件
+  // Save button callback
   screenshots.on("save", (_event: unknown, buffer: Uint8Array, bounds: unknown) => {
     console.log("save capture", buffer, bounds);
   });
-  // 保存后的回调事件
+  // Callback after saving
   screenshots.on("afterSave", (_event: unknown, buffer: Uint8Array, bounds: unknown, isSaved: boolean) => {
     console.log("afterSave capture", buffer, bounds);
-    console.log("isSaved", isSaved) // 是否保存成功
+    console.log("isSaved", isSaved) // Whether the file was saved successfully
   });
 
 });

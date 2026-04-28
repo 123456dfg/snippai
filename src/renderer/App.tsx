@@ -55,7 +55,7 @@ function getInitialModels(): ManagedModel[] {
 }
 
 function getInitialSelectedModel(models: ManagedModel[]): string {
-  const fallbackModel = models[0]?.value ?? "gemini"
+  const fallbackModel = models[0]?.value ?? ""
   const stored = localStorage.getItem("model")
   if (!stored) {
     return fallbackModel
@@ -89,6 +89,27 @@ const WEB_SEARCH_TOOLS: AIModelTool[] = [
     },
   },
 ]
+
+const WEB_SEARCH_VALIDATION_INSTRUCTION = `
+Use the web_search tool ONLY when necessary.
+
+Call web_search if and only if:
+- The question involves real-time, recent, or rapidly changing information (e.g. news, prices, APIs, versions)
+- The answer depends on specific factual data you are not confident about (e.g. exact dates, statistics, authorship)
+- The question explicitly asks for verification, sources, or up-to-date information
+
+Do NOT call web_search if:
+- The question is about general knowledge, reasoning, coding, or well-known facts
+- You can answer confidently from your internal knowledge
+- The question is subjective, conceptual, or does not require external validation
+
+Constraints:
+- At most one web_search call per question unless absolutely necessary
+- If you call web_search, use it to verify key facts, not to restate the entire answer
+
+Always decide first: "Do I really need external verification?"
+If not, answer directly.
+`;
 
 function App() {
   const [screenShotResult, setScreenShotResult] = useState<string | null>(null)
@@ -156,18 +177,20 @@ function App() {
   ): Promise<string> => {
     const defaultSearchClient = getDefaultSearchClient(searchClients)
     if (!defaultSearchClient) {
-      throw new Error("请先在设置 > 网络搜索中添加搜索客户端，并设置默认客户端。")
+      throw new Error("Add a search client in Settings > Web Search and set it as the default first.")
     }
 
     const searchApiKey = await getSearchClientApiKey(defaultSearchClient.id)
     if (!searchApiKey) {
-      throw new Error("默认搜索客户端缺少 API Key，请在设置中重新添加。")
+      throw new Error("The default search client is missing an API key. Please add it again in Settings.")
     }
+
+    const promptWithWebSearchInstruction = `${fullPrompt}\n\n${WEB_SEARCH_VALIDATION_INSTRUCTION}`
 
     const searchProvider = createWebSearchProvider(defaultSearchClient.provider, searchApiKey)
     const firstResponse = await modelInstance.run(
       base64Image,
-      fullPrompt,
+      promptWithWebSearchInstruction,
       modelApiKey,
       resolveApiUrlForModel(selectedModel),
       selectedModel.modelName,
@@ -176,7 +199,7 @@ function App() {
 
     if (!firstResponse.toolCalls.length) {
       if (!firstResponse.content) {
-        throw new Error("模型未返回有效结果。")
+        throw new Error("The model did not return a valid result.")
       }
       return firstResponse.content
     }
@@ -206,10 +229,10 @@ function App() {
       if (firstResponse.content) {
         return firstResponse.content
       }
-      throw new Error("模型未生成可执行的联网搜索查询。")
+      throw new Error("The model did not generate a usable web search query.")
     }
 
-    const secondPrompt = `${fullPrompt}\n\n以下是 web_search 工具返回的检索结果，请综合这些信息给出最终回答：\n${searchResults.join("\n\n")}`
+    const secondPrompt = `${fullPrompt}\n\nThe following are results returned by the web_search tool. Use them to verify your reasoning and provide the final answer:\n${searchResults.join("\n\n")}`
     const secondResponse = await modelInstance.run(
       base64Image,
       secondPrompt,
@@ -224,7 +247,7 @@ function App() {
     if (firstResponse.content) {
       return firstResponse.content
     }
-    throw new Error("模型未返回最终结果。")
+    throw new Error("The model did not return a final result.")
   }
 
   const handleTextChange = (text: string) => {
@@ -234,11 +257,21 @@ function App() {
   const recognizeScreenshot = async (base64Image: string) => {
     setResult(null)
     setOnError(false)
+
+    if (modelList.length === 0) {
+      setOpenDialog(true)
+      toast({
+        title: "No Models Configured",
+        description: "Please add a model in Settings before using screenshot recognition.",
+      })
+      return
+    }
+
     setLoading(true)
     try {
       const selectedModel = findModelByValue(model, modelList)
       if (!selectedModel) {
-        throw new Error("未找到当前选中的模型。")
+        throw new Error("Could not find the currently selected model.")
       }
 
       const promptList = getPromptOptions(selectedModel.value)
@@ -247,7 +280,7 @@ function App() {
 
       if (selectedModel.requireApiKey && !apiKey) {
         setOpenDialog(true)
-        throw new Error(`模型 ${selectedModel.label} 需要先在设置中填写 API Key。`)
+        throw new Error(`Model ${selectedModel.label} requires an API key in Settings before it can be used.`)
       }
 
       const modelInstance = await AIModel.create(selectedModel.value)
@@ -273,7 +306,7 @@ function App() {
     } catch (error) {
       setOnError(true)
       toast({
-        title: "模型调用失败",
+        title: "Model Request Failed",
         description: (error as Error).message,
       })
     } finally {
@@ -360,9 +393,19 @@ function App() {
             {prompt === "Solve" && (
               <Button
                 variant={solveWebSearchEnabled ? "default" : "outline"}
-                onClick={() => setSolveWebSearchEnabled((value) => !value)}
+                onClick={() => {
+                  if (!solveWebSearchEnabled && searchClients.length === 0) {
+                    setOpenDialog(true)
+                    toast({
+                      title: "No Search Client",
+                      description: "Please add a search client in Settings > Web Search first.",
+                    })
+                    return
+                  }
+                  setSolveWebSearchEnabled((value) => !value)
+                }}
               >
-                联网搜索：{solveWebSearchEnabled ? "开" : "关"}
+                Web Search: {solveWebSearchEnabled ? "On" : "Off"}
               </Button>
             )}
             {(result || onError) && screenShotResult && (

@@ -7,6 +7,6 @@ export function createWebSearchProvider(provider: SearchProvider, apiKey: string
     case "tavily":
       return new TavilySearchProvider(apiKey);
     default:
-      throw new Error(`不支持的搜索提供商：${provider}`);
+      throw new Error(`Unsupported search provider: ${provider}`);
   }
 }

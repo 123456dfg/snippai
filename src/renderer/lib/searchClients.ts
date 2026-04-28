@@ -76,10 +76,16 @@ function normalizeDefault(clients: SearchClient[]): SearchClient[] {
   }));
 }
 
+export function replaceSearchClients(clients: SearchClient[]): SearchClient[] {
+  const normalized = normalizeDefault(clients);
+  saveSearchClients(normalized);
+  return normalized;
+}
+
 export async function addSearchClient(input: AddSearchClientInput): Promise<SearchClient[]> {
   const apiKey = input.apiKey.trim();
   if (!apiKey) {
-    throw new Error("请填写搜索客户端 API Key。");
+    throw new Error("Please enter a search client API key.");
   }
 
   const encryptedApiKey = await encryptText(apiKey);
@@ -111,13 +117,13 @@ export async function addSearchClient(input: AddSearchClientInput): Promise<Sear
 export async function updateSearchClient(input: UpdateSearchClientInput): Promise<SearchClient[]> {
   const apiKey = input.apiKey.trim();
   if (!apiKey) {
-    throw new Error("请填写搜索客户端 API Key。");
+    throw new Error("Please enter a search client API key.");
   }
 
   const current = loadSearchClients();
   const targetIndex = current.findIndex((item) => item.id === input.id);
   if (targetIndex < 0) {
-    throw new Error("未找到需要编辑的搜索客户端。");
+    throw new Error("Could not find the search client to edit.");
   }
 
   const encryptedApiKey = await encryptText(apiKey);

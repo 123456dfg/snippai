@@ -22,7 +22,7 @@ function replaceTemplateValues(template: string, model: string, apiKey: string |
 function buildGeminiUrl(apiUrl: string, model: string, apiKey: string | undefined): string {
   const trimmed = apiUrl.trim();
   if (!trimmed) {
-    throw new Error("Gemini 风格模型缺少 API URL。");
+    throw new Error("The Gemini-style model is missing an API URL.");
   }
 
   let url = replaceTemplateValues(trimmed, model, apiKey);
@@ -44,6 +44,35 @@ function buildGeminiUrl(apiUrl: string, model: string, apiKey: string | undefine
 }
 
 export default class GeminiStyleModel {
+  async testConnection(apiKey: string | undefined, model: string, apiUrl: string): Promise<void> {
+    if (!apiUrl) {
+      throw new Error("Missing API URL.");
+    }
+
+    const endpoint = buildGeminiUrl(apiUrl, model, apiKey);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (apiKey && !endpoint.includes("key=") && !endpoint.includes("api_key=")) {
+      headers["x-goog-api-key"] = apiKey;
+    }
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: "hi" }] }],
+        generationConfig: { maxOutputTokens: 1 },
+      }),
+      redirect: "follow",
+    });
+
+    if (!response.ok) {
+      const result = (await response.json().catch(() => ({}))) as GeminiResponse;
+      throw new Error(result.error?.message ?? `Request failed (${response.status}).`);
+    }
+  }
+
   async chat(
     image: string,
     prompt: string,
@@ -53,7 +82,7 @@ export default class GeminiStyleModel {
     tools?: AIModelTool[]
   ): Promise<AIModelResponse> {
     if (!apiUrl) {
-      throw new Error("Gemini 风格模型缺少 API URL。");
+      throw new Error("The Gemini-style model is missing an API URL.");
     }
 
     const endpoint = buildGeminiUrl(apiUrl, model ?? "gemini-1.5-pro", apiKey);
@@ -100,12 +129,12 @@ export default class GeminiStyleModel {
 
     const result = (await response.json()) as GeminiResponse;
     if (!response.ok) {
-      throw new Error(result.error?.message ?? "Gemini 风格模型请求失败。");
+      throw new Error(result.error?.message ?? "The Gemini-style model request failed.");
     }
 
     const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) {
-      throw new Error("模型返回内容为空。");
+      throw new Error("The model returned empty content.");
     }
 
     return {
@@ -113,4 +142,24 @@ export default class GeminiStyleModel {
       toolCalls: [],
     };
   }
+}
+
+const defaultClient = new GeminiStyleModel();
+
+export function geminiRunner(
+  image: string,
+  prompt: string,
+  apiKey?: string,
+  apiUrl?: string,
+  model?: string,
+  tools?: AIModelTool[]
+): Promise<AIModelResponse> {
+  return defaultClient.chat(
+    image,
+    prompt,
+    apiKey,
+    model ?? "gemini-1.5-pro",
+    apiUrl ?? "https://s.global.ssl.fastly.net/v1beta/models/{model}:generateContent",
+    tools
+  );
 }

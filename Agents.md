@@ -1,130 +1,130 @@
-# Snippai 开发规范（Agent）
+# Snippai Development Guidelines (Agent)
 
-本文档基于当前仓库 `develop` 分支代码与配置生成，适用于本项目后续功能开发、重构与修复。
+This document is generated from the current `develop` branch code and configuration. It applies to future feature development, refactoring, and fixes in this repository.
 
-## 1. 适用范围与目标
+## 1. Scope and Goals
 
-- 适用分支：`develop`（当前默认开发分支）。
-- 适用目录：`src/`、`docs/` 及根目录构建配置。
-- 目标：在不破坏现有行为的前提下，持续提升可维护性、类型安全与发布稳定性。
+- Target branch: `develop` (the current default development branch).
+- Target directories: `src/`, `docs/`, and build-related files in the repository root.
+- Goal: continuously improve maintainability, type safety, and release stability without breaking existing behavior.
 
-## 2. 技术栈与常用命令
+## 2. Tech Stack and Common Commands
 
-- 核心栈：`Electron Forge` + `Vite` + `React 18` + `TypeScript` + `TailwindCSS` + `shadcn/ui`（Radix）。
-- 文档栈：`VitePress`（`docs/`）。
-- 质量工具：`ESLint`（已配置），`Husky`（已接入，当前 `pre-commit` 为空）。
+- Core stack: `Electron Forge` + `Vite` + `React 18` + `TypeScript` + `TailwindCSS` + `shadcn/ui` (Radix).
+- Documentation stack: `VitePress` (`docs/`).
+- Quality tools: `ESLint` (configured) and `Husky` (integrated, with an empty `pre-commit` hook at the moment).
 
-开发命令（以 `package.json` 为准）：
+Development commands from `package.json`:
 
-- `npm run start`：Electron 本地启动。
-- `npm run start:web`：仅前端（Vite）启动。
-- `npm run lint`：全仓 ESLint 检查（`.ts/.tsx`）。
-- `npm run package` / `npm run make`：桌面包构建。
-- `npm run docs:dev` / `npm run docs:build`：文档开发与构建。
+- `npm run start`: start Electron locally.
+- `npm run start:web`: start the frontend only with Vite.
+- `npm run lint`: run ESLint across the repository for `.ts/.tsx` files.
+- `npm run package` / `npm run make`: build desktop packages.
+- `npm run docs:dev` / `npm run docs:build`: develop and build the documentation site.
 
-## 3. 目录职责（强制遵守）
+## 3. Directory Responsibilities (Mandatory)
 
-- `src/main.ts`：Electron 主进程（窗口生命周期、全局快捷键、截图能力、IPC 发送）。
-- `src/preload.ts`：`contextBridge` 暴露白名单 API（渲染层与 Electron 能力桥接）。
-- `src/renderer/`：React 渲染进程（UI、状态、模型调用、组件）。
-- `src/renderer/models/`：模型适配层（按 `model-*.ts` 文件组织）。
-- `src/renderer/components/ui/`：基础 UI 原子组件（shadcn 风格）。
-- `docs/`：VitePress 文档站点。
+- `src/main.ts`: Electron main process, including window lifecycle, global shortcuts, screenshot capabilities, and IPC events.
+- `src/preload.ts`: exposes a whitelist of APIs through `contextBridge` for renderer-to-Electron bridging.
+- `src/renderer/`: React renderer process, including UI, state, model calls, and components.
+- `src/renderer/models/`: model adapter layer organized by `model-*.ts` files.
+- `src/renderer/components/ui/`: reusable base UI components in the shadcn style.
+- `docs/`: VitePress documentation site.
 
-禁止跨层直接调用：
+Direct cross-layer calls are prohibited:
 
-- 渲染层禁止直接依赖 `electron` 主进程 API。
-- 主进程能力必须通过 `preload` 显式暴露后再给渲染层使用。
+- The renderer must not depend directly on Electron main-process APIs.
+- Main-process capabilities must be exposed explicitly through `preload` before the renderer can use them.
 
-## 4. Electron 与安全规范（强制）
+## 4. Electron and Security Rules (Mandatory)
 
-- 保持 `contextBridge` 白名单模式，不新增“全量透传”接口。
-- 不在渲染进程开启 `nodeIntegration`。
-- IPC 通道命名应语义化，新增通道时同步更新 `preload` 暴露方法与清理逻辑。
-- 截图、API Key 等敏感信息禁止打印到控制台或上报到错误平台。
-- 网络请求必须使用 `https`，禁止硬编码私密密钥。
+- Keep `contextBridge` in whitelist mode. Do not add blanket pass-through APIs.
+- Do not enable `nodeIntegration` in the renderer process.
+- IPC channel names must be semantic. When adding a channel, update both the `preload` exposure and any cleanup logic.
+- Sensitive information such as screenshots and API keys must not be logged to the console or reported to error platforms.
+- Network requests must use `https`. Never hardcode private secrets.
 
-## 5. TypeScript 与代码风格
+## 5. TypeScript and Code Style
 
-### 5.1 类型规范（强制）
+### 5.1 Type Rules (Mandatory)
 
-- 新增代码禁止无必要 `any`；`tsconfig` 已启用 `noImplicitAny`。
-- 若必须兼容历史逻辑使用 `any`，需在附近添加简短注释说明原因与后续替换计划。
-- 公共函数、组件 props、模型入参/出参必须写明确类型。
+- New code must not use unnecessary `any`. `tsconfig` already enables `noImplicitAny`.
+- If `any` is required for legacy compatibility, add a brief nearby comment explaining why and the follow-up replacement plan.
+- Public functions, component props, and model input/output types must be declared explicitly.
 
-### 5.2 命名与文件组织（推荐 + 渐进约束）
+### 5.2 Naming and File Organization (Recommended + Gradual Constraints)
 
-- 现有业务组件文件以 `lowerCamelCase` 为主（如 `displayTextResult.tsx`），短期内保持兼容，不做大规模重命名。
-- 新增组件建议：
-  - 文件名沿用当前目录约定（业务组件可 `lowerCamelCase`）。
-  - 组件名使用 `PascalCase`。
-- 模型文件统一：`src/renderer/models/model-<name>.ts`。
-- 常量使用语义化命名，避免魔法字符串散落（如本地存储 key、IPC channel）。
+- Existing business component files mainly use `lowerCamelCase` (for example `displayTextResult.tsx`). Keep that convention for compatibility and avoid broad renames for now.
+- For new components:
+  - Reuse the existing directory convention for filenames. Business components may continue to use `lowerCamelCase`.
+  - Use `PascalCase` for component names.
+- Model files should follow `src/renderer/models/model-<name>.ts`.
+- Constants should use semantic names. Avoid scattering magic strings such as storage keys or IPC channel names.
 
-### 5.3 导入与依赖（推荐）
+### 5.3 Imports and Dependencies (Recommended)
 
-- 导入顺序：第三方依赖 -> 项目内模块。
-- 优先使用别名 `@/`（已在 Vite/TS 配置中声明），减少深层相对路径。
-- `components/ui` 仅放通用基础组件，业务逻辑放 `components/`。
+- Import order: third-party dependencies first, then internal project modules.
+- Prefer the `@/` alias that is already configured in Vite and TypeScript to reduce deep relative paths.
+- Keep `components/ui` limited to shared base components. Put business logic in `components/`.
 
-### 5.4 注释与日志（强制）
+### 5.4 Comments and Logging (Mandatory)
 
-- 注释仅用于说明“为什么”，避免解释显而易见的“做了什么”。
-- 提交前移除调试日志（`console.log`）；保留日志需说明用途（如关键错误上下文）。
-- 文件编码统一 UTF-8，避免出现乱码注释。
+- Comments should explain why, not obvious implementation details.
+- Remove debug logs like `console.log` before submitting changes. Any retained logs must have a clear purpose, such as essential error context.
+- Use UTF-8 file encoding consistently and avoid garbled comments.
 
-## 6. UI 与交互规范
+## 6. UI and Interaction Rules
 
-- 优先复用 `components/ui` 原子组件与 `cn()` 工具函数，保持视觉与交互一致。
-- 样式优先 Tailwind utility class，公共主题变量沿用 `src/renderer/index.css` 的 CSS 变量体系。
-- 新增可交互按钮/表单必须包含可识别文案或可访问性属性（如 `aria-*`/可见标签）。
-- 涉及用户反馈的异步行为需提供加载态与错误提示（项目中统一使用 toast）。
+- Reuse `components/ui` primitives and the `cn()` helper whenever possible to keep visuals and interactions consistent.
+- Prefer Tailwind utility classes for styling, and keep using the CSS variable theme system defined in `src/renderer/index.css`.
+- New interactive buttons and forms must include recognizable labels or accessibility attributes such as `aria-*`.
+- Async actions that affect user feedback must include loading and error states. The project standard is toast-based feedback.
 
-## 7. 模型接入规范
+## 7. Model Integration Rules
 
-新增模型时必须同时修改：
+When adding a new model, update all of the following:
 
-1. `src/renderer/models/model-<name>.ts`：实现模型调用函数。
-2. `src/renderer/lib/models.ts`：补充模型元数据（`value/label/requireApiKey/requireBaseURL/modelScript`）与提示词选项。
-3. `src/renderer/models/index.ts`：确保动态加载路径可命中该模型文件。
-4. UI 交互：验证模型切换、API Key 输入与重试逻辑可用。
+1. `src/renderer/models/model-<name>.ts`: implement the model call function.
+2. `src/renderer/lib/models.ts`: add model metadata (`value/label/requireApiKey/requireBaseURL/modelScript`) and prompt options.
+3. `src/renderer/models/index.ts`: ensure the dynamic loader can resolve the model file.
+4. UI interactions: verify model switching, API key input, and retry behavior.
 
-要求：
+Requirements:
 
-- 统一错误抛出格式，保证 UI toast 能展示有效信息。
-- 不在日志中输出完整请求体中的敏感字段（例如 API Key）。
+- Use a consistent error format so UI toasts can display useful messages.
+- Do not log sensitive request fields such as full API keys.
 
-## 8. 本地存储与配置规范
+## 8. Local Storage and Configuration Rules
 
-- 当前已使用的 key（如 `model`、`apiKeyMap`、`${model}_baseURL`）不得随意改名；若需变更必须提供迁移逻辑。
-- 新增本地存储键名应集中定义并加前缀，避免冲突。
-- 读取本地存储时必须处理空值、非法 JSON、版本兼容问题。
+- Existing keys such as `model`, `apiKeyMap`, and `${model}_baseURL` must not be renamed casually. Any change requires a migration path.
+- Define new local storage keys centrally and add a prefix to avoid collisions.
+- Handle empty values, invalid JSON, and version compatibility whenever reading from local storage.
 
-## 9. 提交与分支规范
+## 9. Commit and Branch Rules
 
-- 分支建议：`feat/*`、`fix/*`、`chore/*`、`docs/*`。
-- Commit message 建议采用：`type(scope): summary`（与历史 `chore:`/`fix:` 提交风格兼容）。
-- PR 至少包含：
-  - 变更目的与范围；
-  - 手动验证步骤与结果；
-  - 涉及 UI 时附截图或录屏。
+- Recommended branch prefixes: `feat/*`, `fix/*`, `chore/*`, `docs/*`.
+- Recommended commit format: `type(scope): summary`, consistent with historical `chore:` and `fix:` commits.
+- Every PR should include at least:
+  - the change goal and scope;
+  - manual verification steps and results;
+  - screenshots or recordings for UI changes.
 
-## 10. 合入前检查清单（强制）
+## 10. Pre-Merge Checklist (Mandatory)
 
-- 已执行：`npm run lint` 且通过。
-- 修改文档站相关内容时已执行：`npm run docs:build` 且通过。
-- 至少完成一次核心流程手测：
-  - 截图触发与结果回传；
-  - 模型切换与提示词切换；
-  - API Key 输入/保存；
-  - 结果展示与复制。
-- 未引入无关文件改动（尤其构建产物与临时文件）。
+- `npm run lint` has been executed and passes.
+- If documentation site content changed, `npm run docs:build` has been executed and passes.
+- At least one manual test run has covered the core flow:
+  - screenshot trigger and result delivery;
+  - model switching and prompt switching;
+  - API key input and persistence;
+  - result rendering and copying.
+- No unrelated file changes are included, especially build artifacts or temporary files.
 
-## 11. CI/CD 对齐要求
+## 11. CI/CD Alignment
 
-- 当前 GitHub Actions 工作流会在 `develop` 分支 push/PR 时执行文档构建与部署（Azure Static Web Apps）。
-- 涉及 `docs/`、导航、示例内容的改动，必须保证 `docs:build` 可通过，避免阻塞 CI。
+- The current GitHub Actions workflow builds and deploys documentation on `develop` branch pushes and pull requests using Azure Static Web Apps.
+- Changes involving `docs/`, navigation, or example content must keep `docs:build` passing so CI is not blocked.
 
 ---
 
-若后续引入测试框架（如单元测试/E2E），应在本规范新增“测试分层与覆盖率要求”章节，并将其加入合入前强制检查项。
+If the project later adopts a test framework such as unit tests or E2E tests, add a new section that defines test layering and coverage requirements, and include it in the mandatory pre-merge checklist.

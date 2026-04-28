@@ -1,4 +1,7 @@
 import { findModelByValue } from "../lib/models";
+import { geminiRunner } from "./gemini-style";
+import { openaiRunner } from "./openai-style";
+import { anthropicRunner } from "./anthropic-style";
 import type { AIModelResponse, AIModelTool } from "./types";
 
 type ModelRunner = (
@@ -10,6 +13,12 @@ type ModelRunner = (
   tools?: AIModelTool[]
 ) => Promise<AIModelResponse>;
 
+const RUNNERS: Record<string, ModelRunner> = {
+  gemini: geminiRunner,
+  openai: openaiRunner,
+  anthropic: anthropicRunner,
+};
+
 export default class AIModel {
   model: ModelRunner;
 
@@ -19,9 +28,9 @@ export default class AIModel {
 
   static async create(modelValue: string): Promise<AIModel> {
     const matchedModel = findModelByValue(modelValue);
-    const importPath = matchedModel?.modelScript ?? "gemini";
-    const module = await import(`./model-${importPath}.ts`);
-    return new AIModel(module.default as ModelRunner);
+    const scriptKey = matchedModel?.modelScript ?? "gemini";
+    const runner = RUNNERS[scriptKey] ?? RUNNERS.gemini;
+    return new AIModel(runner);
   }
 
   async run(

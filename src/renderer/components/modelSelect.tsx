@@ -26,8 +26,10 @@ export default function SelectModel(props: {
 }) {
   const [open, setOpen] = React.useState(false)
 
-  const selectedLabel =
-    props.modelList.find((item) => item.value === props.value)?.label ?? ""
+  const isEmpty = props.modelList.length === 0
+  const selectedLabel = isEmpty
+    ? "No models"
+    : (props.modelList.find((item) => item.value === props.value)?.label ?? "")
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -36,6 +38,7 @@ export default function SelectModel(props: {
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          disabled={isEmpty}
           className="w-[240px] justify-between"
         >
           {selectedLabel}

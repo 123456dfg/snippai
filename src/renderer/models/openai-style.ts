@@ -13,11 +13,11 @@ interface OpenAIChatChoice {
 }
 
 interface OpenAIToolCall {
-      id?: string;
-      function?: {
-        name?: string;
-        arguments?: string;
-      };
+  id?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
 }
 
 interface OpenAIChatResponse {
@@ -58,6 +58,35 @@ function extractToolCalls(toolCalls: OpenAIToolCall[] | undefined): AIModelToolC
 }
 
 export default class OpenAIStyleModel {
+  async testConnection(apiKey: string, model: string | undefined, apiUrl: string): Promise<void> {
+    if (!apiUrl) {
+      throw new Error("Missing API URL.");
+    }
+    if (!apiKey) {
+      throw new Error("Missing API key.");
+    }
+
+    const baseUrl = normalizeOpenAIBaseUrl(apiUrl);
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: model ?? "gpt-4o",
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 1,
+      }),
+      redirect: "follow",
+    });
+
+    if (!response.ok) {
+      const result = (await response.json().catch(() => ({}))) as OpenAIChatResponse;
+      throw new Error(result.error?.message ?? `Request failed (${response.status}).`);
+    }
+  }
+
   async chat(
     image: string,
     prompt: string,
@@ -67,10 +96,10 @@ export default class OpenAIStyleModel {
     tools?: AIModelTool[]
   ): Promise<AIModelResponse> {
     if (!apiUrl) {
-      throw new Error("OpenAI 风格模型缺少 API URL。");
+      throw new Error("The OpenAI-style model is missing an API URL.");
     }
     if (!apiKey) {
-      throw new Error("当前模型需要 API Key。");
+      throw new Error("This model requires an API key.");
     }
 
     const baseUrl = normalizeOpenAIBaseUrl(apiUrl);
@@ -111,14 +140,14 @@ export default class OpenAIStyleModel {
 
     const result = (await response.json()) as OpenAIChatResponse;
     if (!response.ok) {
-      throw new Error(result.error?.message ?? "OpenAI 风格模型请求失败。");
+      throw new Error(result.error?.message ?? "The OpenAI-style model request failed.");
     }
 
     const message = result.choices?.[0]?.message;
     const content = extractMessageContent(message?.content);
     const toolCalls = extractToolCalls(message?.tool_calls);
     if (!content && toolCalls.length === 0) {
-      throw new Error("模型返回内容为空。");
+      throw new Error("The model returned empty content.");
     }
     return {
       content,
@@ -126,3 +155,19 @@ export default class OpenAIStyleModel {
     };
   }
 }
+
+function createOpenAIRunner(defaultModel?: string, defaultApiUrl?: string) {
+  const client = new OpenAIStyleModel();
+  return (
+    image: string,
+    prompt: string,
+    apiKey?: string,
+    apiUrl?: string,
+    model?: string,
+    tools?: AIModelTool[]
+  ): Promise<AIModelResponse> => {
+    return client.chat(image, prompt, apiKey, model ?? defaultModel, apiUrl ?? defaultApiUrl, tools);
+  };
+}
+
+export const openaiRunner = createOpenAIRunner();
